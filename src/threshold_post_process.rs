@@ -140,7 +140,7 @@ fn init_threshold_pipeline(
             (
                 // screen texture
                 texture_2d(TextureSampleType::Float { filterable: true }),
-                sampler(SamplerBindingType::Filtering),
+                sampler(SamplerBindingType::NonFiltering),
                 uniform_buffer::<ThresholdSettings>(true),
             ),
         ),

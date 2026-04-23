@@ -13,10 +13,11 @@ struct DistanceFieldSettings {
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let dims: vec2<f32> = vec2<f32>(textureDimensions(screen_texture));
-    let uv: vec2<f32> = in.uv;
-    let texel_size = vec2<f32>(1, 1) / vec2<f32>(dims);
+    let uv: vec2<i32> = vec2<i32>(floor(
+        (in.uv * vec2<f32>(dims)) + vec2(0.5, 0.5)
+    ));
     let step_size_i32 = i32(step_size);
-    let color: vec4<f32> = textureSample(screen_texture, texture_sampler, uv);
+    let color = textureLoad(screen_texture, uv, 0);
 
     var best_sample: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 0.0);
     var best_distance: f32 = 99999999.0;
@@ -25,22 +26,22 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 
     for (var x: i32 = -1; x <= 1; x++) {
         for (var y: i32 = -1; y <= 1; y++) {
-            let offset: vec2<f32> = vec2<f32>(vec2(x, y) * step_size_i32) * texel_size;
-            let sample_pos: vec2<f32> = vec2<f32>(uv) + offset;
-            let sample: vec4<f32> = textureSample(screen_texture, texture_sampler, sample_pos);
+            let offset: vec2<i32> = vec2<i32>(x, y) * vec2<i32>(step_size_i32);
+            let sample_pos: vec2<i32> = uv + offset;
+            let sample: vec4<f32> = textureLoad(screen_texture, sample_pos, 0);
 
             if sample.a == 0.0 {
                 continue;
             }
 
-            let dist = distance(uv, sample.xy);
+            let dist = distance(in.uv, sample.xy);
             if dist < best_distance {
                 best_distance = dist;
-                best_sample = vec4(sample.r, sample.g, 0.0, 1.0);
+                best_sample = vec4(sample.r, sample.g, color.b, 1.0);
             }
         }
     }
 
-    best_sample.b = 0.0;
+    // best_sample.b = 0.0;
     return best_sample;
 }

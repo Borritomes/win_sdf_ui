@@ -129,7 +129,7 @@ fn init_color_to_uv_pipeline(
             (
                 // screen texture
                 texture_2d(TextureSampleType::Float { filterable: true }),
-                sampler(SamplerBindingType::Filtering),
+                sampler(SamplerBindingType::NonFiltering),
             ),
         ),
     );

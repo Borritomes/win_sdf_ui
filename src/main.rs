@@ -49,37 +49,37 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         ColorToUVMarker,
     ));
 
-    // commands.spawn((
-    //     Name::new("Lock"),
-    //     Transform {
-    //         translation: Vec3::new(0.0, 0.0, 1.0),
-    //         ..default()
-    //     },
-    //     Sprite {
-    //         image: asset_server.load("images/locked.png"),
-    //         custom_size: Some(Vec2::new(48.0, 48.0)),
-    //         ..default()
-    //     },
-    // ));
+    commands.spawn((
+        Name::new("Lock"),
+        Transform {
+            translation: Vec3::new(0.0, 0.0, 1.0),
+            ..default()
+        },
+        Sprite {
+            image: asset_server.load("images/canvas.png"),
+            custom_size: Some(Vec2::new(512.0, 512.0)),
+            ..default()
+        },
+    ));
 
-    commands.spawn((
-        Name::new("WhiteCube"),
-        Transform {
-            translation: Vec3::new(64.0, 0.0, 1.0),
-            rotation: Quat::from_rotation_z(30.0),
-            ..default()
-        },
-        Sprite::from_color(css::WHITE, Vec2::new(32.0, 32.0)),
-    ));
-    commands.spawn((
-        Name::new("WhiteCube"),
-        Transform {
-            translation: Vec3::new(-64.0, 0.0, 1.0),
-            rotation: Quat::from_rotation_z(30.0),
-            ..default()
-        },
-        Sprite::from_color(css::WHITE, Vec2::new(32.0, 32.0)),
-    ));
+    // commands.spawn((
+    //     Name::new("WhiteCube"),
+    //     Transform {
+    //         translation: Vec3::new(64.0, 0.0, 1.0),
+    //         rotation: Quat::from_rotation_z(30.0),
+    //         ..default()
+    //     },
+    //     Sprite::from_color(css::WHITE, Vec2::new(32.0, 32.0)),
+    // ));
+    // commands.spawn((
+    //     Name::new("WhiteCube"),
+    //     Transform {
+    //         translation: Vec3::new(-64.0, 0.0, 1.0),
+    //         rotation: Quat::from_rotation_z(30.0),
+    //         ..default()
+    //     },
+    //     Sprite::from_color(css::WHITE, Vec2::new(32.0, 32.0)),
+    // ));
 
     // commands.spawn((
     //     Name::new("Logo"),

@@ -13,11 +13,15 @@ fn is_fill(color: vec4<f32>) -> bool {
 
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let dims: vec2<f32> = vec2<f32>(textureDimensions(screen_texture));
+    // let uv: vec2<f32> = floor((in.uv * dims) + vec2<f32>(0.5)) / dims;
+    // let uv_u32: vec2<u32> = vec2<u32>(dims * uv);
     let uv: vec2<f32> = in.uv;
     let color: vec4<f32> = textureSample(screen_texture, texture_sampler, uv);
+    // let color: vec4<f32> = textureLoad(screen_texture, uv_u32, 0);
     
     if is_fill(grayscale(color)) {
-        return vec4<f32>(uv.r, uv.g, 0.0, 1.0);
+        return vec4<f32>(uv.r, uv.g, 1.0, 1.0);
     } else {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }

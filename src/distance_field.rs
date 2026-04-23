@@ -134,7 +134,8 @@ pub fn distance_field_system(
     };
 
     let size = view_target.main_texture().size();
-    let mut jump_dist = max(size.width, size.height);
+    dbg!(size);
+    let mut jump_dist = max(size.width * 2, size.height * 2);
     let jump_steps = ceil(log2((jump_dist) as f32)) as u32;
 
     for _count in 0..=jump_steps {

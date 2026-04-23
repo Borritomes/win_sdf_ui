@@ -14,13 +14,15 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let dims = textureDimensions(screen_texture);
     let texel_size: vec2<f32> = vec2<f32>(1.0, 1.0) / vec2<f32>(dims);
     let size_of_radius_pixels = vec2<f32>(radius, radius) * texel_size;
+    // let uv: vec4<u32> = round(in.uv * dims);
 
+    var dist: f32 = distance(in.uv, vec2(color.r, color.g));
+    dist = dist;
 
-    var dist: f32 = distance(in.uv, vec2(color.r, color.g)) / min(size_of_radius_pixels.x, size_of_radius_pixels.y);
-    dist = 1.0 - dist;
-
-    return vec4(dist, dist, dist, 1.0);
-    if dist < 0.5 {
+    if in.uv.x > 0.5 {
+        return vec4(dist, dist, dist, 1.0);
+    }
+    if dist <= 0.001 {
         return vec4(1.0, 1.0, 1.0, 1.0);
     } else {
         return vec4(0.0, 0.0, 0.0, 1.0);
