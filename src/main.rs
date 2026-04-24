@@ -1,21 +1,15 @@
 use bevy::{
-    prelude::*, window::WindowResolution,
-};
-use threshold_post_process::{ThresholdPostProcessPlugin, ThresholdSettings};
-
-use crate::{
-    color_to_uv::{ColorToUVMarker, ColorToUVPlugin},
-    distance_field::{DistanceFieldPlugin, DistanceFieldSettings},
+    prelude::*, window::WindowResolution
 };
 
-mod color_to_uv;
+use crate::distance_field::DistanceFieldPlugin;
+
 mod distance_field;
-mod threshold_post_process;
 
 fn main() {
     let mut app = App::new();
 
-    app.add_plugins(
+    app.add_plugins((
         DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
@@ -26,29 +20,25 @@ fn main() {
                 ..default()
             })
             .set(ImagePlugin::default_nearest()),
-    );
+    ));
 
     app.add_systems(Startup, setup);
     app.add_systems(FixedUpdate, ui_circle_move);
     app.add_observer(fullscreen_sprite_on_add);
     app.add_systems(Update, (toggle_fullscreen_sprite_system, fullsceen_sprite_system).chain());
 
-    app.add_plugins((
-        ThresholdPostProcessPlugin,
-        DistanceFieldPlugin,
-        ColorToUVPlugin,
-    ));
+    app.add_plugins(DistanceFieldPlugin);
 
     app.run();
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
     commands.spawn((
         Name::new("Camera"),
         Camera2d,
-        ThresholdSettings { threshold: 0.5 },
-        DistanceFieldSettings { radius: 1024 },
-        ColorToUVMarker,
     ));
 
     commands.spawn((
