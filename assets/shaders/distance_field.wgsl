@@ -19,6 +19,12 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let step_size_i32 = i32(step_size);
     let color = textureLoad(screen_texture, uv, 0);
 
+    // if color.r == in.uv.r && color.g == in.uv.g {
+    //     return vec4(1.0);
+    // } else {
+    //     return vec4(0.0, 0.0, 0.0, 1.0);
+    // }
+
     var best_sample: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 0.0);
     var best_distance: f32 = 99999999.0;
 

@@ -21,7 +21,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // let color: vec4<f32> = textureLoad(screen_texture, uv_u32, 0);
     
     if is_fill(grayscale(color)) {
-        return vec4<f32>(uv.r, uv.g, 1.0, 1.0);
+        return vec4<f32>(uv.r, uv.g, 0.0, 1.0);
     } else {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
