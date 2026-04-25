@@ -1,113 +1,196 @@
-// TODO: prepare bind groups whatever that means
-// {
-// let size = view_target.main_texture().size();
-// // dbg!(size);
-// let mut jump_dist = max(size.width * 2, size.height * 2);
-// let jump_steps = ceil(log2((jump_dist) as f32)) as u32;
-
-// for _count in 0..=jump_steps {
-//     let post_process = view_target.post_process_write();
-
-//     let mut uniform = UniformBuffer::from(&*step_size_buffer);
-
-//     let step_size_buffer = &StepSizeBuffer {
-//         step_size: jump_dist,
-//     };
-
-//     uniform.set(step_size_buffer);
-//     uniform.write_buffer(&render_device, &render_queue);
-
-//     let bind_group = match &mut cache.cached {
-//         Some((texture_id, bind_group)) if post_process.source.id() == *texture_id => bind_group,
-//         cached => {
-//             let bind_group = ctx.render_device().create_bind_group(
-//                 "distance_field_bind_group",
-//                 &pipeline_cache.get_bind_group_layout(&distance_field_pipeline.layout),
-//                 &BindGroupEntries::sequential((
-//                     post_process.source,
-//                     &distance_field_pipeline.sampler,
-//                     settings_binding.clone(),
-//                     uniform.into_binding(),
-//                 )),
-//             );
-
-//             let (_, bind_group) = cached.insert((post_process.source.id(), bind_group));
-//             bind_group
-//         }
-//     };
-
-//     let mut render_pass = ctx
-//         .command_encoder()
-//         .begin_render_pass(&RenderPassDescriptor {
-//             label: Some("distance_field_pass"),
-//             color_attachments: &[Some(RenderPassColorAttachment {
-//                 view: post_process.destination,
-//                 depth_slice: None,
-//                 resolve_target: None,
-//                 ops: Operations::default(),
-//             })],
-//             depth_stencil_attachment: None,
-//             timestamp_writes: None,
-//             occlusion_query_set: None,
-//             multiview_mask: None,
-//         });
-
-//     render_pass.set_pipeline(pipeline);
-
-//     render_pass.set_bind_group(0, bind_group, &[settings_index.index()]);
-//     render_pass.draw(0..3, 0..1);
-
-//     jump_dist /= 2;
-//     if jump_dist < 1 {
-//         jump_dist = 1
-//     }
-// }
-// }
-
-use bevy::{image::ToExtents, prelude::*, render::{Render, RenderApp, camera::ExtractedCamera, extract_component::{ExtractComponent, ExtractComponentPlugin}, render_resource::{ShaderType, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages}, renderer::RenderDevice, texture::{CachedTexture, TextureCache}}};
+use bevy::{
+    core_pipeline::{Core2d, FullscreenShader}, image::ToExtents, material::descriptor::{
+        BindGroupLayoutDescriptor, CachedRenderPipelineId, FragmentState, RenderPipelineDescriptor,
+    }, math::ops::{ceil, log2}, prelude::*, render::{
+        Render, RenderApp, RenderStartup,
+        camera::ExtractedCamera,
+        extract_component::{ExtractComponent, ExtractComponentPlugin},
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        render_resource::{
+            BindGroupEntries, BindGroupLayoutEntries, ColorTargetState, ColorWrites, IntoBinding, Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor, UniformBuffer, binding_types::{sampler, texture_2d, uniform_buffer}
+        },
+        renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
+        texture::{CachedTexture, TextureCache},
+        uniform::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
+        view::ViewTarget,
+    }
+};
+use std::cmp::max;
 
 const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
+const DISTANCE_FIELD_SHADER: &str = "shaders/threshold.wgsl";
 
 pub struct DistanceFieldPlugin;
 
 impl Plugin for DistanceFieldPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(
-            ExtractComponentPlugin::<DistanceField>::default()
-        );
+        app.add_plugins((
+            ExtractComponentPlugin::<DistanceFieldSettings>::default(),
+            UniformComponentPlugin::<DistanceFieldSettings>::default(),
+            ExtractResourcePlugin::<DistanceFieldPipeline>::default(),
+        ));
 
-        let render_app = app.get_sub_app_mut(RenderApp).expect("failed to get render_app");
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
 
-        render_app.add_systems(Render, prepare_distance_field_textures);
+        render_app.add_systems(RenderStartup, init_distance_field_pipeline);
+        render_app.add_systems(Render, (prepare_distance_field_texture, display_texture).chain());
+        render_app.add_systems(Core2d, distance_field_system);
     }
 }
 
-#[derive(Component, Reflect, Clone, Debug, ShaderType, ExtractComponent)]
+#[derive(Resource, Clone, ExtractResource, Default, ShaderType)]
+pub struct StepSizeBuffer {
+    step_size: u32,
+}
+
+// #[derive(Default)]
+// pub struct DistanceFieldBindGroupCache {
+//     cached: Option<(TextureViewId, BindGroup)>,
+// }
+
+#[derive(Component, Reflect, Debug, ExtractComponent, Clone, ShaderType)]
 #[reflect(Component)]
-pub struct DistanceField {
+pub struct DistanceFieldSettings {
+    pub radius: f32,
     pub threshold: f32,
 }
 
 #[derive(Component)]
 struct DistanceFieldTexture {
-    texture: CachedTexture
+    texture: CachedTexture,
 }
 
-fn prepare_distance_field_textures(
+impl DistanceFieldTexture {
+    fn view(&self) -> TextureView {
+        self.texture.texture.create_view(&TextureViewDescriptor {
+            base_mip_level: 0u32,
+            mip_level_count: Some(1u32),
+            ..Default::default()
+        })
+    }
+}
+
+#[derive(Resource, ExtractResource, Clone)]
+struct DistanceFieldPipeline {
+    bind_group_layout: BindGroupLayoutDescriptor,
+    sampler: Sampler,
+    pipeline_id: CachedRenderPipelineId,
+}
+
+fn distance_field_system(
+    view: ViewQuery<(
+        &ExtractedCamera,
+        &ViewTarget,
+        &DistanceFieldSettings,
+        &DistanceFieldTexture,
+        &DynamicUniformIndex<DistanceFieldSettings>,
+    )>,
+    distance_field_pipeline: Res<DistanceFieldPipeline>,
+    pipeline_cache: Res<PipelineCache>,
+    settings_uniforms: Res<ComponentUniforms<DistanceFieldSettings>>,
+    step_size_buffer: If<Res<StepSizeBuffer>>,
+    mut ctx: RenderContext,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    let (camera, view_target, _distance_field_settings, distance_field_texture, settings_index) =
+        view.into_inner();
+
+    let Some(pipeline) = pipeline_cache.get_render_pipeline(distance_field_pipeline.pipeline_id)
+    else {
+        return;
+    };
+
+    let Some(settings_binding) = settings_uniforms.uniforms().binding() else {
+        warn!("failed settings_binding");
+        return;
+    };
+
+    let size = view_target.main_texture().size();
+
+    let mut jump_dist = max(size.width * 2, size.height * 2);
+    let jump_steps = ceil(log2((jump_dist) as f32)) as u32;
+
+    for _count in 0..=jump_steps {
+        let mut uniform = UniformBuffer::from(&*step_size_buffer.0);
+
+        let step_size_buffer = &StepSizeBuffer {
+            step_size: jump_dist,
+        };
+
+        uniform.set(step_size_buffer);
+        uniform.write_buffer(&render_device, &render_queue);
+
+        let bind_group = ctx.render_device().create_bind_group(
+            "distance_field_bind_group",
+            &pipeline_cache.get_bind_group_layout(&distance_field_pipeline.bind_group_layout),
+            &BindGroupEntries::sequential((
+                view_target.main_texture_view(),
+                &distance_field_pipeline.sampler,
+                settings_binding.clone(),
+                uniform.into_binding(),
+            )),
+        );
+
+        let mut render_pass = ctx
+            .command_encoder()
+            .begin_render_pass(&RenderPassDescriptor {
+                label: Some("distance_field_pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    // view: &distance_field_texture
+                    //     .texture
+                    //     .texture
+                    //     .create_view(&TextureViewDescriptor::default()),
+                    view: &distance_field_texture.view(),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations::default(),
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+        render_pass.set_pipeline(pipeline);
+
+        render_pass.set_bind_group(0, &bind_group, &[settings_index.index()]);
+        render_pass.draw(0..3, 0..1);
+
+        jump_dist /= 2;
+        if jump_dist < 1 {
+            jump_dist = 1
+        }
+    }
+}
+
+fn display_texture(
+    mut commands: Commands,
+    single: Single<(Entity, &DistanceFieldTexture)>,
+    entity: Local<Option<Entity>>
+) {
+    if let Some(entity) = *entity {
+
+    } else {
+        commands.spawn((
+            Name::new("TextureDisplay"),
+        ));
+    }
+}
+
+fn prepare_distance_field_texture(
     mut commands: Commands,
     mut texture_cache: ResMut<TextureCache>,
     render_device: Res<RenderDevice>,
-    views: Query<(Entity, &ExtractedCamera, &DistanceField)>,
+    views: Query<(Entity, &ExtractedCamera, &DistanceFieldSettings)>,
 ) {
-    for (entity, camera, distance_field) in views {
+    for (entity, camera, distance_field_settings) in &views {
         if let Some(viewport) = camera.physical_viewport_size {
             let texture_descriptor = TextureDescriptor {
                 label: Some("distance_field_texture"),
-                size: viewport
-                    .as_vec2()
-                    .as_uvec2()
-                    .max(UVec2::ONE)
-                    .to_extents(),
+                size: viewport.as_vec2().as_uvec2().max(UVec2::ONE).to_extents(),
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: TextureDimension::D2,
@@ -120,9 +203,55 @@ fn prepare_distance_field_textures(
 
             commands
                 .entity(entity)
-                .insert(DistanceFieldTexture {
-                    texture: texture
-                });
+                .insert(DistanceFieldTexture { texture: texture });
         }
     }
+}
+
+fn init_distance_field_pipeline(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    asset_server: Res<AssetServer>,
+    fullscreen_shader: Res<FullscreenShader>,
+    pipeline_cache: Res<PipelineCache>,
+) {
+    let layout = BindGroupLayoutDescriptor::new(
+        "distance_field_bind_group_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::FRAGMENT,
+            (
+                texture_2d(TextureSampleType::Float { filterable: false }),
+                sampler(SamplerBindingType::NonFiltering),
+                uniform_buffer::<DistanceFieldSettings>(true),
+                uniform_buffer::<StepSizeBuffer>(false),
+            ),
+        ),
+    );
+
+    let sampler = render_device.create_sampler(&SamplerDescriptor::default());
+
+    let shader = asset_server.load(DISTANCE_FIELD_SHADER);
+
+    let vertex_state = fullscreen_shader.to_vertex_state();
+    let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
+        label: Some("distance_field_pipeline".into()),
+        layout: vec![layout.clone()],
+        vertex: vertex_state,
+        fragment: Some(FragmentState {
+            shader,
+            targets: vec![Some(ColorTargetState {
+                format: TEXTURE_FORMAT,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            })],
+            ..default()
+        }),
+        ..default()
+    });
+
+    commands.insert_resource(DistanceFieldPipeline {
+        bind_group_layout: layout,
+        sampler: sampler,
+        pipeline_id: pipeline_id,
+    });
 }

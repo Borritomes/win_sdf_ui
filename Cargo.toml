@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 # Use only features needed for a 2D game to improve compile time and size
-bevy = { git = "https://github.com/bevyengine/bevy", default-features = false, features = ["2d", "ui"] }
+bevy = { git = "https://github.com/bevyengine/bevy", default-features = false, features = ["2d", "ui", "debug"] }
 rand = "0.10.1"
 # Compile out low-severity logs to improve performance.
 # Remove these features if you want to profile your game with tracy.
