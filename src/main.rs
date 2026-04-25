@@ -1,6 +1,8 @@
-use bevy::{prelude::*, window::WindowResolution};
+use bevy::{camera::{ImageRenderTarget, RenderTarget}, color::palettes::css, prelude::*, window::WindowResolution};
 
-use crate::distance_field::{DistanceFieldPlugin, DistanceFieldSettings};
+use crate::distance_field::{
+    DistanceFieldImage, DistanceFieldPlugin, DistanceFieldSettings, TEXTURE_FORMAT,
+};
 
 mod distance_field;
 
@@ -21,6 +23,7 @@ fn main() {
     app.add_systems(Startup, setup);
     app.add_systems(FixedUpdate, ui_circle_move);
     app.add_observer(fullscreen_sprite_on_add);
+    app.add_observer(on_distance_field_settings_add);
     app.add_systems(
         Update,
         (toggle_fullscreen_sprite_system, fullsceen_sprite_system).chain(),
@@ -31,20 +34,62 @@ fn main() {
     app.run();
 }
 
+fn on_distance_field_settings_add(
+    event: On<Add, DistanceFieldSettings>,
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let image = Image::new_target_texture(512, 512, TEXTURE_FORMAT, Some(TEXTURE_FORMAT));
+    let handle = images.add(image);
+
+    commands.spawn((
+        Name::new("Rgba32FloatImage"),
+        Transform {
+            translation: Vec3::new(-256.0, 0.0, 1.0),
+            ..default()
+        },
+        Sprite::from_image(handle.clone()),
+    ));
+
+    commands
+        .entity(event.entity)
+        .insert(DistanceFieldImage(handle.clone()))
+        .insert(RenderTarget::Image(ImageRenderTarget {
+            handle: handle,
+            scale_factor: 1.0,
+        }));
+}
+
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Name::new("Camera"),
         Camera2d,
+        Transform {
+            translation: Vec3::new(256.0, 0.0, 1.0),
+            ..default()
+        },
+        Camera {
+            clear_color: ClearColorConfig::Custom(css::WHITE.into()),
+            ..default()
+        },
         DistanceFieldSettings {
             radius: 16.0,
             threshold: 0.5,
-        }
+        },
+    ));
+    commands.spawn((
+        Name::new("MainCamera"),
+        Camera2d,
+        Camera {
+            clear_color: ClearColorConfig::Custom(css::BLUE.into()),
+            ..default()
+        },
     ));
 
     commands.spawn((
         Name::new("Image"),
         Transform {
-            translation: Vec3::new(0.0, 0.0, 1.0),
+            translation: Vec3::new(256.0, 0.0, 0.5),
             ..default()
         },
         Sprite {

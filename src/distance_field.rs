@@ -1,23 +1,30 @@
 use bevy::{
-    core_pipeline::{Core2d, FullscreenShader}, image::ToExtents, material::descriptor::{
+    core_pipeline::{Core2d, FullscreenShader},
+    material::descriptor::{
         BindGroupLayoutDescriptor, CachedRenderPipelineId, FragmentState, RenderPipelineDescriptor,
-    }, math::ops::{ceil, log2}, prelude::*, render::{
-        Render, RenderApp, RenderStartup,
+    },
+    math::ops::{ceil, log2},
+    prelude::*,
+    render::{
+        RenderApp, RenderStartup,
         camera::ExtractedCamera,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_resource::{
-            BindGroupEntries, BindGroupLayoutEntries, ColorTargetState, ColorWrites, IntoBinding, Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor, UniformBuffer, binding_types::{sampler, texture_2d, uniform_buffer}
+            BindGroup, BindGroupEntries, BindGroupLayoutEntries, ColorTargetState, ColorWrites,
+            IntoBinding, Operations, PipelineCache, RenderPassColorAttachment,
+            RenderPassDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            ShaderType, TextureFormat, TextureSampleType, TextureViewId, UniformBuffer,
+            binding_types::{sampler, texture_2d, uniform_buffer},
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
-        texture::{CachedTexture, TextureCache},
         uniform::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
         view::ViewTarget,
-    }
+    },
 };
 use std::cmp::max;
 
-const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
+pub const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
 const DISTANCE_FIELD_SHADER: &str = "shaders/threshold.wgsl";
 
 pub struct DistanceFieldPlugin;
@@ -35,7 +42,6 @@ impl Plugin for DistanceFieldPlugin {
         };
 
         render_app.add_systems(RenderStartup, init_distance_field_pipeline);
-        render_app.add_systems(Render, (prepare_distance_field_texture, display_texture).chain());
         render_app.add_systems(Core2d, distance_field_system);
     }
 }
@@ -45,10 +51,10 @@ pub struct StepSizeBuffer {
     step_size: u32,
 }
 
-// #[derive(Default)]
-// pub struct DistanceFieldBindGroupCache {
-//     cached: Option<(TextureViewId, BindGroup)>,
-// }
+#[derive(Default)]
+pub struct DistanceFieldBindGroupCache {
+    cached: Option<(TextureViewId, BindGroup)>,
+}
 
 #[derive(Component, Reflect, Debug, ExtractComponent, Clone, ShaderType)]
 #[reflect(Component)]
@@ -58,19 +64,7 @@ pub struct DistanceFieldSettings {
 }
 
 #[derive(Component)]
-struct DistanceFieldTexture {
-    texture: CachedTexture,
-}
-
-impl DistanceFieldTexture {
-    fn view(&self) -> TextureView {
-        self.texture.texture.create_view(&TextureViewDescriptor {
-            base_mip_level: 0u32,
-            mip_level_count: Some(1u32),
-            ..Default::default()
-        })
-    }
-}
+pub struct DistanceFieldImage(pub Handle<Image>);
 
 #[derive(Resource, ExtractResource, Clone)]
 struct DistanceFieldPipeline {
@@ -84,19 +78,19 @@ fn distance_field_system(
         &ExtractedCamera,
         &ViewTarget,
         &DistanceFieldSettings,
-        &DistanceFieldTexture,
         &DynamicUniformIndex<DistanceFieldSettings>,
     )>,
     distance_field_pipeline: Res<DistanceFieldPipeline>,
     pipeline_cache: Res<PipelineCache>,
     settings_uniforms: Res<ComponentUniforms<DistanceFieldSettings>>,
     step_size_buffer: If<Res<StepSizeBuffer>>,
+    mut cache: Local<DistanceFieldBindGroupCache>,
     mut ctx: RenderContext,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
-    let (camera, view_target, _distance_field_settings, distance_field_texture, settings_index) =
-        view.into_inner();
+    println!("POST PROCESSED");
+    let (camera, view_target, _distance_field_settings, settings_index) = view.into_inner();
 
     let Some(pipeline) = pipeline_cache.get_render_pipeline(distance_field_pipeline.pipeline_id)
     else {
@@ -123,16 +117,27 @@ fn distance_field_system(
         uniform.set(step_size_buffer);
         uniform.write_buffer(&render_device, &render_queue);
 
-        let bind_group = ctx.render_device().create_bind_group(
-            "distance_field_bind_group",
-            &pipeline_cache.get_bind_group_layout(&distance_field_pipeline.bind_group_layout),
-            &BindGroupEntries::sequential((
-                view_target.main_texture_view(),
-                &distance_field_pipeline.sampler,
-                settings_binding.clone(),
-                uniform.into_binding(),
-            )),
-        );
+        let post_process = view_target.post_process_write();
+
+        let bind_group = match &mut cache.cached {
+            Some((texture_id, bind_group)) if post_process.source.id() == *texture_id => bind_group,
+            cached => {
+                let bind_group = ctx.render_device().create_bind_group(
+                    "distance_field_bind_group",
+                    &pipeline_cache
+                        .get_bind_group_layout(&distance_field_pipeline.bind_group_layout),
+                    &BindGroupEntries::sequential((
+                        post_process.source,
+                        &distance_field_pipeline.sampler,
+                        settings_binding.clone(),
+                        uniform.into_binding(),
+                    )),
+                );
+
+                let (_, bind_group) = cached.insert((post_process.source.id(), bind_group));
+                bind_group
+            }
+        };
 
         let mut render_pass = ctx
             .command_encoder()
@@ -143,7 +148,7 @@ fn distance_field_system(
                     //     .texture
                     //     .texture
                     //     .create_view(&TextureViewDescriptor::default()),
-                    view: &distance_field_texture.view(),
+                    view: post_process.destination,
                     depth_slice: None,
                     resolve_target: None,
                     ops: Operations::default(),
@@ -156,54 +161,12 @@ fn distance_field_system(
 
         render_pass.set_pipeline(pipeline);
 
-        render_pass.set_bind_group(0, &bind_group, &[settings_index.index()]);
+        render_pass.set_bind_group(0, bind_group, &[settings_index.index()]);
         render_pass.draw(0..3, 0..1);
 
         jump_dist /= 2;
         if jump_dist < 1 {
             jump_dist = 1
-        }
-    }
-}
-
-fn display_texture(
-    mut commands: Commands,
-    single: Single<(Entity, &DistanceFieldTexture)>,
-    entity: Local<Option<Entity>>
-) {
-    if let Some(entity) = *entity {
-
-    } else {
-        commands.spawn((
-            Name::new("TextureDisplay"),
-        ));
-    }
-}
-
-fn prepare_distance_field_texture(
-    mut commands: Commands,
-    mut texture_cache: ResMut<TextureCache>,
-    render_device: Res<RenderDevice>,
-    views: Query<(Entity, &ExtractedCamera, &DistanceFieldSettings)>,
-) {
-    for (entity, camera, distance_field_settings) in &views {
-        if let Some(viewport) = camera.physical_viewport_size {
-            let texture_descriptor = TextureDescriptor {
-                label: Some("distance_field_texture"),
-                size: viewport.as_vec2().as_uvec2().max(UVec2::ONE).to_extents(),
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TEXTURE_FORMAT,
-                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            };
-
-            let texture = texture_cache.get(&render_device, texture_descriptor);
-
-            commands
-                .entity(entity)
-                .insert(DistanceFieldTexture { texture: texture });
         }
     }
 }
