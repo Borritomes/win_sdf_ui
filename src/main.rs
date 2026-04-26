@@ -1,10 +1,24 @@
-use bevy::{camera::{ImageRenderTarget, RenderTarget}, color::palettes::css, prelude::*, window::WindowResolution};
+use bevy::{
+    camera::{ImageRenderTarget, RenderTarget},
+    color::palettes::css,
+    prelude::*,
+    render::render_resource::TextureFormat,
+    window::WindowResolution,
+};
 
-use crate::distance_field::{
-    DistanceFieldImage, DistanceFieldPlugin, DistanceFieldSettings, TEXTURE_FORMAT,
+use crate::{
+    distance_field::{DistanceFieldImage, DistanceFieldPlugin, DistanceFieldSettings},
+    distance_to_value::{DistanceToValuePlugin, DistanceToValueSettings},
+    threshold::{ThresholdPlugin, ThresholdSettings},
+    uv_to_color::{ColorToUVMarker, UVToColorPlugin},
 };
 
 mod distance_field;
+mod distance_to_value;
+mod threshold;
+mod uv_to_color;
+
+pub const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
 
 fn main() {
     let mut app = App::new();
@@ -12,7 +26,7 @@ fn main() {
     app.add_plugins((DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(Window {
-                resolution: WindowResolution::new(512, 512),
+                resolution: WindowResolution::new(1024, 512),
                 title: "win_sdf_ui".into(),
                 ..default()
             }),
@@ -29,7 +43,12 @@ fn main() {
         (toggle_fullscreen_sprite_system, fullsceen_sprite_system).chain(),
     );
 
-    app.add_plugins(DistanceFieldPlugin);
+    app.add_plugins((
+        UVToColorPlugin,
+        DistanceFieldPlugin,
+        ThresholdPlugin,
+        DistanceToValuePlugin,
+    ));
 
     app.run();
 }
@@ -76,12 +95,19 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             radius: 16.0,
             threshold: 0.5,
         },
+        DistanceToValueSettings {
+            threshold: 0.5
+        },
+        ThresholdSettings {
+            threshold: 0.5
+        },
+        ColorToUVMarker
     ));
     commands.spawn((
         Name::new("MainCamera"),
         Camera2d,
         Camera {
-            clear_color: ClearColorConfig::Custom(css::BLUE.into()),
+            clear_color: ClearColorConfig::Custom(Srgba::new(0.0, 0.0, 0.0, 0.0).into()),
             ..default()
         },
     ));
@@ -93,7 +119,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         },
         Sprite {
-            image: asset_server.load("images/sog.png"),
+            image: asset_server.load("images/canvas.png"),
             custom_size: Some(Vec2::new(512.0, 512.0)),
             ..default()
         },

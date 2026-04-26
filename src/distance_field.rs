@@ -1,5 +1,5 @@
 use bevy::{
-    core_pipeline::{Core2d, FullscreenShader},
+    core_pipeline::{Core2d, Core2dSystems, FullscreenShader},
     material::descriptor::{
         BindGroupLayoutDescriptor, CachedRenderPipelineId, FragmentState, RenderPipelineDescriptor,
     },
@@ -14,7 +14,7 @@ use bevy::{
             BindGroup, BindGroupEntries, BindGroupLayoutEntries, ColorTargetState, ColorWrites,
             IntoBinding, Operations, PipelineCache, RenderPassColorAttachment,
             RenderPassDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
-            ShaderType, TextureFormat, TextureSampleType, TextureViewId, UniformBuffer,
+            ShaderType, TextureSampleType, TextureViewId, UniformBuffer,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
@@ -24,8 +24,9 @@ use bevy::{
 };
 use std::cmp::max;
 
-pub const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
-const DISTANCE_FIELD_SHADER: &str = "shaders/threshold.wgsl";
+use crate::{TEXTURE_FORMAT, uv_to_color};
+
+const DISTANCE_FIELD_SHADER: &str = "shaders/distance_field.wgsl";
 
 pub struct DistanceFieldPlugin;
 
@@ -41,8 +42,15 @@ impl Plugin for DistanceFieldPlugin {
             return;
         };
 
+        render_app.insert_resource(StepSizeBuffer { step_size: 8 });
+
         render_app.add_systems(RenderStartup, init_distance_field_pipeline);
-        render_app.add_systems(Core2d, distance_field_system);
+        render_app.add_systems(
+            Core2d,
+            distance_field_system
+                .after(uv_to_color::uv_to_color_system)
+                .in_set(Core2dSystems::PostProcess),
+        );
     }
 }
 
@@ -64,16 +72,17 @@ pub struct DistanceFieldSettings {
 }
 
 #[derive(Component)]
+#[allow(dead_code)]
 pub struct DistanceFieldImage(pub Handle<Image>);
 
 #[derive(Resource, ExtractResource, Clone)]
-struct DistanceFieldPipeline {
+pub struct DistanceFieldPipeline {
     bind_group_layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     pipeline_id: CachedRenderPipelineId,
 }
 
-fn distance_field_system(
+pub fn distance_field_system(
     view: ViewQuery<(
         &ExtractedCamera,
         &ViewTarget,
@@ -83,14 +92,13 @@ fn distance_field_system(
     distance_field_pipeline: Res<DistanceFieldPipeline>,
     pipeline_cache: Res<PipelineCache>,
     settings_uniforms: Res<ComponentUniforms<DistanceFieldSettings>>,
-    step_size_buffer: If<Res<StepSizeBuffer>>,
+    step_size_buffer: Res<StepSizeBuffer>,
     mut cache: Local<DistanceFieldBindGroupCache>,
     mut ctx: RenderContext,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
-    println!("POST PROCESSED");
-    let (camera, view_target, _distance_field_settings, settings_index) = view.into_inner();
+    let (_camera, view_target, _distance_field_settings, settings_index) = view.into_inner();
 
     let Some(pipeline) = pipeline_cache.get_render_pipeline(distance_field_pipeline.pipeline_id)
     else {
@@ -108,7 +116,7 @@ fn distance_field_system(
     let jump_steps = ceil(log2((jump_dist) as f32)) as u32;
 
     for _count in 0..=jump_steps {
-        let mut uniform = UniformBuffer::from(&*step_size_buffer.0);
+        let mut uniform = UniformBuffer::from(&*step_size_buffer);
 
         let step_size_buffer = &StepSizeBuffer {
             step_size: jump_dist,
@@ -144,10 +152,6 @@ fn distance_field_system(
             .begin_render_pass(&RenderPassDescriptor {
                 label: Some("distance_field_pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    // view: &distance_field_texture
-                    //     .texture
-                    //     .texture
-                    //     .create_view(&TextureViewDescriptor::default()),
                     view: post_process.destination,
                     depth_slice: None,
                     resolve_target: None,

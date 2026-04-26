@@ -3,7 +3,6 @@
 @group(0) @binding(0) var screen_texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;
 struct ThresholdSettings {
-    radius: f32,
     threshold: f32,
 }
 @group(0) @binding(2) var<uniform> settings: ThresholdSettings;

@@ -19,10 +19,8 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     var dist: f32 = distance(in.uv, vec2(color.r, color.g));
     dist = dist;
 
-    if in.uv.x > 0.5 {
-        return vec4(dist, dist, dist, 1.0);
-    }
-    if dist <= 0.001 {
+    // return vec4(dist, dist, dist, 1.0);
+    if dist < 0.00125 {
         return vec4(1.0, 1.0, 1.0, 1.0);
     } else {
         return vec4(0.0, 0.0, 0.0, 1.0);
