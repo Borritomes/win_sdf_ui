@@ -13,10 +13,11 @@ use crate::{
     uv_to_color::{ColorToUVMarker, UVToColorPlugin},
 };
 
-mod distance_field;
-mod distance_to_value;
 mod threshold;
 mod uv_to_color;
+mod distance_field;
+mod distance_to_value;
+mod render_to_window;
 
 pub const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
 

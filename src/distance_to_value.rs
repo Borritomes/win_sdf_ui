@@ -20,7 +20,7 @@ use bevy::{
     },
 };
 
-use crate::distance_field;
+use crate::{distance_field, render_to_window};
 
 const DISTANCE_TO_VALUE_SHADER: &str = "shaders/distance_to_value.wgsl";
 
@@ -42,6 +42,7 @@ impl Plugin for DistanceToValuePlugin {
             Core2d,
             distance_to_value_system
                 .after(distance_field::distance_field_system)
+                .before(render_to_window::render_to_window_system)
                 .in_set(Core2dSystems::PostProcess),
         );
     }
