@@ -2,7 +2,10 @@ use bevy::{
     camera::{ImageRenderTarget, RenderTarget},
     color::palettes::css,
     prelude::*,
-    render::render_resource::TextureFormat,
+    render::{
+        render_resource::{TextureFormat, TextureView, TextureViewDescriptor},
+        texture::CachedTexture,
+    },
     window::WindowResolution,
 };
 
@@ -13,11 +16,11 @@ use crate::{
     uv_to_color::{ColorToUVMarker, UVToColorPlugin},
 };
 
-mod threshold;
-mod uv_to_color;
 mod distance_field;
 mod distance_to_value;
 mod render_to_window;
+mod threshold;
+mod uv_to_color;
 
 pub const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
 
@@ -45,13 +48,26 @@ fn main() {
     );
 
     app.add_plugins((
+        ThresholdPlugin,
         UVToColorPlugin,
         DistanceFieldPlugin,
-        ThresholdPlugin,
         DistanceToValuePlugin,
     ));
 
+    app.add_systems(Update, |mut message_writer: MessageWriter<AppExit>, mut count: Local<u32>| {
+        if *count < 2 {
+            *count += 1;
+        } else {
+            message_writer.write(AppExit::Success);
+        }
+    });
     app.run();
+}
+
+#[derive(Component)]
+pub struct DistanceFieldTextures {
+    texture_a: CachedTexture,
+    texture_b: CachedTexture,
 }
 
 fn on_distance_field_settings_add(
@@ -96,13 +112,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             radius: 16.0,
             threshold: 0.5,
         },
-        DistanceToValueSettings {
-            threshold: 0.5
-        },
-        ThresholdSettings {
-            threshold: 0.5
-        },
-        ColorToUVMarker
+        DistanceToValueSettings { threshold: 0.5 },
+        ThresholdSettings { threshold: 0.5 },
+        ColorToUVMarker,
     ));
     commands.spawn((
         Name::new("MainCamera"),
