@@ -19,7 +19,7 @@ use bevy::{
     },
 };
 
-use crate::{DistanceFieldTextures, TEXTURE_FORMAT, distance_field, threshold};
+use crate::{DistanceFieldTextures, TEXTURE_FORMAT, threshold::threshold_system};
 
 const COLOR_TO_UV_SHADER: &str = "shaders/color_to_uv.wgsl";
 
@@ -37,16 +37,16 @@ impl Plugin for UVToColorPlugin {
         render_app.add_systems(
             Core2d,
             uv_to_color_system
-                .after(threshold::threshold_system)
+                .after(threshold_system)
                 .in_set(Core2dSystems::PostProcess),
         );
     }
 }
 
-// #[derive(Default)]
-// pub struct ColorToUVBindGroupCache {
-//     cached: Option<(TextureViewId, BindGroup)>,
-// }
+#[derive(Default)]
+pub struct ColorToUVBindGroupCache {
+    cached: Option<(TextureViewId, BindGroup)>,
+}
 
 #[derive(Component, Default, Reflect, Clone, Copy, ExtractComponent)]
 #[reflect(Component)]
@@ -63,7 +63,7 @@ pub fn uv_to_color_system(
     view: ViewQuery<(&ViewTarget, &DistanceFieldTextures), With<ColorToUVMarker>>,
     color_to_uv_pipeline: Option<Res<ColorToUVPipeline>>,
     pipeline_cache: Res<PipelineCache>,
-    // mut cache: Local<ColorToUVBindGroupCache>,
+    mut cache: Local<ColorToUVBindGroupCache>,
     mut ctx: RenderContext,
 ) {
     let Some(color_to_uv_pipeline) = color_to_uv_pipeline else {
@@ -77,59 +77,38 @@ pub fn uv_to_color_system(
         return;
     };
 
-    // read a write b
-    for (texture_a, texture_b) in [
-        (
-            &distance_field_textures.texture_regular_a,
-            &distance_field_textures.texture_regular_b,
-        ),
-        (
-            &distance_field_textures.texture_invert_a,
-            &distance_field_textures.texture_invert_b,
-        ),
+    for texture in [
+        &distance_field_textures.texture_a,
+        &distance_field_textures.texture_b,
     ] {
-        let view_a = texture_a.texture.create_view(&TextureViewDescriptor {
-            label: Some("uv_to_color_view_a"),
+        let view = texture.texture.create_view(&TextureViewDescriptor {
+            label: Some("uv_to_color_view"),
             format: Some(TEXTURE_FORMAT),
             base_mip_level: 0u32,
             mip_level_count: Some(1u32),
             ..default()
         });
 
-        let view_b = texture_b.texture.create_view(&TextureViewDescriptor {
-            label: Some("uv_to_color_view_b"),
-            format: Some(TEXTURE_FORMAT),
-            base_mip_level: 0u32,
-            mip_level_count: Some(1u32),
-            ..default()
-        });
+        let bind_group = match &mut cache.cached {
+            Some((texture_id, bind_group)) if view.id() == *texture_id => bind_group,
+            cached => {
+                let bind_group = ctx.render_device().create_bind_group(
+                    "color_to_uv_bind_group",
+                    &pipeline_cache.get_bind_group_layout(&color_to_uv_pipeline.layout),
+                    &BindGroupEntries::sequential((&view, &color_to_uv_pipeline.sampler)),
+                );
 
-        // let bind_group = match &mut cache.cached {
-        //     Some((texture_id, bind_group)) if view_a.id() == *texture_id => bind_group,
-        //     cached => {
-        //         let bind_group = ctx.render_device().create_bind_group(
-        //             "color_to_uv_bind_group",
-        //             &pipeline_cache.get_bind_group_layout(&color_to_uv_pipeline.layout),
-        //             &BindGroupEntries::sequential((&view_a, &color_to_uv_pipeline.sampler)),
-        //         );
-
-        //         let (_, bind_group) = cached.insert((view_a.id(), bind_group));
-        //         bind_group
-        //     }
-        // };
-
-        let bind_group = &ctx.render_device().create_bind_group(
-            "color_to_uv_bind_group",
-            &pipeline_cache.get_bind_group_layout(&color_to_uv_pipeline.layout),
-            &BindGroupEntries::sequential((&view_a, &color_to_uv_pipeline.sampler)),
-        );
+                let (_, bind_group) = cached.insert((view.id(), bind_group));
+                bind_group
+            }
+        };
 
         let mut render_pass = ctx
             .command_encoder()
             .begin_render_pass(&RenderPassDescriptor {
                 label: Some("color_to_uv_pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &view_b,
+                    view: &view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: Operations::default(),

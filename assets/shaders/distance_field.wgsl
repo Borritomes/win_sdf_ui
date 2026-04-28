@@ -12,7 +12,6 @@ struct DistanceFieldSettings {
 
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
-    // return textureSample(screen_texture, texture_sampler, in.uv);
     let dims: vec2<f32> = vec2<f32>(textureDimensions(screen_texture));
     let uv: vec2<i32> = vec2<i32>(floor(
         (in.uv * vec2<f32>(dims)) + vec2(0.5, 0.5)

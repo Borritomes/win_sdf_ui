@@ -48,10 +48,10 @@ impl Plugin for DistanceToValuePlugin {
     }
 }
 
-// #[derive(Default)]
-// pub struct DistanceToValueBindGroupCache {
-//     cached: Option<(TextureViewId, BindGroup)>,
-// }
+#[derive(Default)]
+pub struct DistanceToValueBindGroupCache {
+    cached: Option<(TextureViewId, BindGroup)>,
+}
 
 #[derive(Component, Default, Reflect, Clone, Copy, ExtractComponent, ShaderType)]
 #[reflect(Component)]
@@ -76,7 +76,7 @@ pub fn distance_to_value_system(
     distance_to_value_pipeline: Option<Res<DistanceToValuePipeline>>,
     pipeline_cache: Res<PipelineCache>,
     settings_uniforms: Res<ComponentUniforms<DistanceToValueSettings>>,
-    // mut cache: Local<DistanceToValueBindGroupCache>,
+    mut cache: Local<DistanceToValueBindGroupCache>,
     mut ctx: RenderContext,
 ) {
     let Some(distance_to_value_pipeline) = distance_to_value_pipeline else {
@@ -97,8 +97,8 @@ pub fn distance_to_value_system(
 
     let post_process = view_target.post_process_write();
 
-    let view_a_regular = distance_field_textures
-        .texture_regular_a
+    let view_a = distance_field_textures
+        .texture_a
         .texture
         .create_view(&TextureViewDescriptor {
             format: Some(TEXTURE_FORMAT),
@@ -107,27 +107,35 @@ pub fn distance_to_value_system(
             ..default()
         });
 
-    let view_a_invert = distance_field_textures
-        .texture_invert_a
+    let view_b = distance_field_textures
+        .texture_a
         .texture
         .create_view(&TextureViewDescriptor {
-            // label: Some("uv_to_color_view"),
+            label: Some("uv_to_color_view"),
             format: Some(TEXTURE_FORMAT),
             base_mip_level: 0u32,
             mip_level_count: Some(1u32),
             ..default()
         });
 
-    let bind_group = ctx.render_device().create_bind_group(
-        "distance_to_value_bind_group",
-        &pipeline_cache.get_bind_group_layout(&distance_to_value_pipeline.layout),
-        &BindGroupEntries::sequential((
-            &view_a_regular,
-            &view_a_invert,
-            &distance_to_value_pipeline.sampler,
-            settings_binding.clone(),
-        )),
-    );
+    let bind_group = match &mut cache.cached {
+        Some((texture_id, bind_group)) if post_process.source.id() == *texture_id => bind_group,
+        cached => {
+            let bind_group = ctx.render_device().create_bind_group(
+                "distance_to_value_bind_group",
+                &pipeline_cache.get_bind_group_layout(&distance_to_value_pipeline.layout),
+                &BindGroupEntries::sequential((
+                    &view_a,
+                    &view_b,
+                    &distance_to_value_pipeline.sampler,
+                    settings_binding.clone(),
+                )),
+            );
+
+            let (_, bind_group) = cached.insert((post_process.source.id(), bind_group));
+            bind_group
+        }
+    };
 
     let mut render_pass = ctx
         .command_encoder()
@@ -147,7 +155,7 @@ pub fn distance_to_value_system(
 
     render_pass.set_pipeline(pipeline);
 
-    render_pass.set_bind_group(0, &bind_group, &[settings_index.index()]);
+    render_pass.set_bind_group(0, bind_group, &[settings_index.index()]);
     render_pass.draw(0..3, 0..1);
 }
 

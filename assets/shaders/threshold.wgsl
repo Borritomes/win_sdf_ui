@@ -12,7 +12,6 @@ struct ThresholdSettings {
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let color = textureSample(screen_texture, texture_sampler, in.uv);
     
-    // yellow vec4(1.0, 0.6, 0.0, 1.0)
     // falsecase, truecase, condition
     let fill: f32 = select(0.0, 1.0, invert < 1);
 

@@ -59,10 +59,10 @@ pub struct StepSizeBuffer {
     step_size: u32,
 }
 
-// #[derive(Default)]
-// pub struct DistanceFieldBindGroupCache {
-//     cached: Option<(TextureViewId, BindGroup)>,
-// }
+#[derive(Default)]
+pub struct DistanceFieldBindGroupCache {
+    cached: Option<(TextureViewId, BindGroup)>,
+}
 
 #[derive(Component, Reflect, Debug, ExtractComponent, Clone, ShaderType)]
 #[reflect(Component)]
@@ -94,7 +94,7 @@ pub fn distance_field_system(
     pipeline_cache: Res<PipelineCache>,
     settings_uniforms: Res<ComponentUniforms<DistanceFieldSettings>>,
     step_size_buffer: Res<StepSizeBuffer>,
-    // mut cache: Local<DistanceFieldBindGroupCache>,
+    mut cache: Local<DistanceFieldBindGroupCache>,
     mut ctx: RenderContext,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -113,31 +113,16 @@ pub fn distance_field_system(
     };
 
     let size = view_target.main_texture().size();
-    
-    // read b write a
-    for (texture_a, texture_b) in [
-        (
-            &distance_field_textures.texture_regular_a,
-            &distance_field_textures.texture_regular_b,
-        ),
-        (
-            &distance_field_textures.texture_invert_a,
-            &distance_field_textures.texture_invert_b,
-        ),
+
+    let mut jump_dist = max(size.width * 2, size.height * 2);
+    let jump_steps = ceil(log2((jump_dist) as f32)) as u32;
+
+    for texture in [
+        &distance_field_textures.texture_a,
+        &distance_field_textures.texture_b,
     ] {
-        let mut jump_dist = max(size.width * 2, size.height * 2);
-        let jump_steps = ceil(log2((jump_dist) as f32)) as u32;
-
-        let view_b = texture_b.texture.create_view(&TextureViewDescriptor {
-            label: Some("uv_to_color_view_b"),
-            format: Some(TEXTURE_FORMAT),
-            base_mip_level: 0u32,
-            mip_level_count: Some(1u32),
-            ..default()
-        });
-
-        let view_a = texture_a.texture.create_view(&TextureViewDescriptor {
-            label: Some("uv_to_color_view_a"),
+        let view = texture.texture.create_view(&TextureViewDescriptor {
+            label: Some("uv_to_color_view"),
             format: Some(TEXTURE_FORMAT),
             base_mip_level: 0u32,
             mip_level_count: Some(1u32),
@@ -154,43 +139,32 @@ pub fn distance_field_system(
             uniform.set(step_size_buffer);
             uniform.write_buffer(&render_device, &render_queue);
 
-            // let bind_group = match &mut cache.cached {
-            //     Some((texture_id, bind_group)) if view_b.id() == *texture_id => bind_group,
-            //     cached => {
-            //         let bind_group = ctx.render_device().create_bind_group(
-            //             "distance_field_bind_group",
-            //             &pipeline_cache
-            //                 .get_bind_group_layout(&distance_field_pipeline.bind_group_layout),
-            //             &BindGroupEntries::sequential((
-            //                 &view_b,
-            //                 &distance_field_pipeline.sampler,
-            //                 settings_binding.clone(),
-            //                 uniform.into_binding(),
-            //             )),
-            //         );
+            let bind_group = match &mut cache.cached {
+                Some((texture_id, bind_group)) if view.id() == *texture_id => bind_group,
+                cached => {
+                    let bind_group = ctx.render_device().create_bind_group(
+                        "distance_field_bind_group",
+                        &pipeline_cache
+                            .get_bind_group_layout(&distance_field_pipeline.bind_group_layout),
+                        &BindGroupEntries::sequential((
+                            &view,
+                            &distance_field_pipeline.sampler,
+                            settings_binding.clone(),
+                            uniform.into_binding(),
+                        )),
+                    );
 
-            //         let (_, bind_group) = cached.insert((view_b.id(), bind_group));
-            //         bind_group
-            //     }
-            // };
-
-            let bind_group = &ctx.render_device().create_bind_group(
-                "distance_field_bind_group",
-                &pipeline_cache.get_bind_group_layout(&distance_field_pipeline.bind_group_layout),
-                &BindGroupEntries::sequential((
-                    &view_b,
-                    &distance_field_pipeline.sampler,
-                    settings_binding.clone(),
-                    uniform.into_binding(),
-                )),
-            );
+                    let (_, bind_group) = cached.insert((view.id(), bind_group));
+                    bind_group
+                }
+            };
 
             let mut render_pass = ctx
                 .command_encoder()
                 .begin_render_pass(&RenderPassDescriptor {
                     label: Some("distance_field_pass"),
                     color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &view_a,
+                        view: &view,
                         depth_slice: None,
                         resolve_target: None,
                         ops: Operations::default(),
