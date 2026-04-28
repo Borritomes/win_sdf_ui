@@ -11,7 +11,7 @@ use bevy::{
             BindGroup, BindGroupEntries, BindGroupLayoutEntries, ColorTargetState, ColorWrites,
             Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, Sampler,
             SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, TextureFormat,
-            TextureSampleType, TextureViewDescriptor, TextureViewId,
+            TextureSampleType, TextureViewId,
             binding_types::{sampler, texture_2d, uniform_buffer},
         },
         renderer::{RenderContext, RenderDevice, ViewQuery},
@@ -20,7 +20,7 @@ use bevy::{
     },
 };
 
-use crate::{DistanceFieldTextures, TEXTURE_FORMAT, distance_field, render_to_window};
+use crate::{distance_field, render_to_window};
 
 const DISTANCE_TO_VALUE_SHADER: &str = "shaders/distance_to_value.wgsl";
 
@@ -69,7 +69,6 @@ pub struct DistanceToValuePipeline {
 pub fn distance_to_value_system(
     view: ViewQuery<(
         &ViewTarget,
-        &DistanceFieldTextures,
         &DistanceToValueSettings,
         &DynamicUniformIndex<DistanceToValueSettings>,
     )>,
@@ -83,8 +82,7 @@ pub fn distance_to_value_system(
         return;
     };
 
-    let (view_target, distance_field_textures, _distance_to_value_settings, settings_index) =
-        view.into_inner();
+    let (view_target, _distance_to_value_settings, settings_index) = view.into_inner();
 
     let Some(pipeline) = pipeline_cache.get_render_pipeline(distance_to_value_pipeline.pipeline_id)
     else {
@@ -97,27 +95,6 @@ pub fn distance_to_value_system(
 
     let post_process = view_target.post_process_write();
 
-    let view_a = distance_field_textures
-        .texture_a
-        .texture
-        .create_view(&TextureViewDescriptor {
-            format: Some(TEXTURE_FORMAT),
-            base_mip_level: 0u32,
-            mip_level_count: Some(1u32),
-            ..default()
-        });
-
-    let view_b = distance_field_textures
-        .texture_a
-        .texture
-        .create_view(&TextureViewDescriptor {
-            label: Some("uv_to_color_view"),
-            format: Some(TEXTURE_FORMAT),
-            base_mip_level: 0u32,
-            mip_level_count: Some(1u32),
-            ..default()
-        });
-
     let bind_group = match &mut cache.cached {
         Some((texture_id, bind_group)) if post_process.source.id() == *texture_id => bind_group,
         cached => {
@@ -125,8 +102,7 @@ pub fn distance_to_value_system(
                 "distance_to_value_bind_group",
                 &pipeline_cache.get_bind_group_layout(&distance_to_value_pipeline.layout),
                 &BindGroupEntries::sequential((
-                    &view_a,
-                    &view_b,
+                    post_process.source,
                     &distance_to_value_pipeline.sampler,
                     settings_binding.clone(),
                 )),
@@ -172,7 +148,6 @@ fn init_distance_to_value_pipeline(
             ShaderStages::FRAGMENT,
             (
                 // screen texture
-                texture_2d(TextureSampleType::Float { filterable: true }),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 sampler(SamplerBindingType::NonFiltering),
                 uniform_buffer::<DistanceToValueSettings>(true),
