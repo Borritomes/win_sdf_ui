@@ -2,10 +2,7 @@ use bevy::{
     camera::{ImageRenderTarget, RenderTarget},
     color::palettes::css,
     prelude::*,
-    render::{
-        render_resource::{TextureFormat, TextureView, TextureViewDescriptor},
-        texture::CachedTexture,
-    },
+    render::{render_resource::TextureFormat, texture::CachedTexture},
     window::WindowResolution,
 };
 
@@ -54,20 +51,22 @@ fn main() {
         DistanceToValuePlugin,
     ));
 
-    app.add_systems(Update, |mut message_writer: MessageWriter<AppExit>, mut count: Local<u32>| {
-        if *count < 2 {
-            *count += 1;
-        } else {
-            message_writer.write(AppExit::Success);
-        }
-    });
+    // app.add_systems(Update, |mut message_writer: MessageWriter<AppExit>, mut count: Local<u32>| {
+    //     if *count < 2 {
+    //         *count += 1;
+    //     } else {
+    //         message_writer.write(AppExit::Success);
+    //     }
+    // });
     app.run();
 }
 
 #[derive(Component)]
 pub struct DistanceFieldTextures {
-    texture_a: CachedTexture,
-    texture_b: CachedTexture,
+    texture_regular_a: CachedTexture,
+    texture_regular_b: CachedTexture,
+    texture_invert_a: CachedTexture,
+    texture_invert_b: CachedTexture,
 }
 
 fn on_distance_field_settings_add(

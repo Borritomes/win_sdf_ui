@@ -10,13 +10,14 @@ struct DistanceToValueSettings {
 
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
-    if in.uv.x < 0.5 {
-        let color: vec4<f32> = textureSample(texture_a, texture_sampler, in.uv);
-        return color;
-    } else {
-        let color: vec4<f32> = textureSample(texture_b, texture_sampler, in.uv);
-        return color;
-    }
+    // return textureSample(texture_a, texture_sampler, in.uv);
+    // if in.uv.x < 0.5 {
+    //     var color: vec4<f32> = textureSample(texture_a, texture_sampler, in.uv);
+    //     return color;
+    // } else {
+    //     var color: vec4<f32> = textureSample(texture_b, texture_sampler, in.uv);
+    //     return color;
+    // }
 
     let radius = f32(settings.radius);
     let color: vec4<f32> = textureSample(texture_a, texture_sampler, in.uv);
@@ -28,7 +29,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     var dist: f32 = distance(in.uv, vec2(color.r, color.g));
     dist = dist;
 
-    // return vec4(dist, dist, dist, 1.0);
+    return vec4(dist, dist, dist, 1.0);
     if dist < 0.00125 {
         return vec4(1.0, 1.0, 1.0, 1.0);
     } else {
