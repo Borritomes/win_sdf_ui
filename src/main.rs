@@ -13,11 +13,11 @@ use crate::{
     uv_to_color::{ColorToUVMarker, UVToColorPlugin},
 };
 
-mod threshold;
-mod uv_to_color;
 mod distance_field;
 mod distance_to_value;
-mod render_to_window;
+mod ping_pong;
+mod threshold;
+mod uv_to_color;
 
 pub const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
 
@@ -96,13 +96,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             radius: 16.0,
             threshold: 0.5,
         },
-        DistanceToValueSettings {
-            threshold: 0.5
-        },
-        ThresholdSettings {
-            threshold: 0.5
-        },
-        ColorToUVMarker
+        DistanceToValueSettings { threshold: 0.5 },
+        ThresholdSettings { threshold: 0.5 },
+        ColorToUVMarker,
     ));
     commands.spawn((
         Name::new("MainCamera"),
