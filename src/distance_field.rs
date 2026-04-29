@@ -24,7 +24,7 @@ use bevy::{
 };
 use std::cmp::max;
 
-use crate::{TEXTURE_FORMAT, uv_to_color};
+use crate::{TEXTURE_FORMAT, ping_pong::SdfTextures, uv_to_color};
 
 const DISTANCE_FIELD_SHADER: &str = "shaders/distance_field.wgsl";
 
@@ -86,6 +86,7 @@ pub fn distance_field_system(
     view: ViewQuery<(
         &ExtractedCamera,
         &ViewTarget,
+        &mut SdfTextures,
         &DistanceFieldSettings,
         &DynamicUniformIndex<DistanceFieldSettings>,
     )>,
@@ -98,7 +99,8 @@ pub fn distance_field_system(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
-    let (_camera, view_target, _distance_field_settings, settings_index) = view.into_inner();
+    let (_camera, view_target, mut sdf_textures, _distance_field_settings, settings_index) =
+        view.into_inner();
 
     let Some(pipeline) = pipeline_cache.get_render_pipeline(distance_field_pipeline.pipeline_id)
     else {
@@ -112,65 +114,82 @@ pub fn distance_field_system(
 
     let size = view_target.main_texture().size();
 
-    let mut jump_dist = max(size.width * 2, size.height * 2);
-    let jump_steps = ceil(log2((jump_dist) as f32)) as u32;
+    let (regular, invert) = sdf_textures.mut_borrow_both();
 
-    for _count in 0..=jump_steps {
-        let mut uniform = UniformBuffer::from(&*step_size_buffer);
+    for texture in [regular, invert] {
+        let mut jump_dist = max(size.width * 2, size.height * 2);
+        let jump_steps = ceil(log2((jump_dist) as f32)) as u32;
 
-        let step_size_buffer = &StepSizeBuffer {
-            step_size: jump_dist,
-        };
+        for _count in 0..=jump_steps {
+            let mut uniform = UniformBuffer::from(&*step_size_buffer);
 
-        uniform.set(step_size_buffer);
-        uniform.write_buffer(&render_device, &render_queue);
+            let step_size_buffer = &StepSizeBuffer {
+                step_size: jump_dist,
+            };
 
-        let post_process = view_target.post_process_write();
+            uniform.set(step_size_buffer);
+            uniform.write_buffer(&render_device, &render_queue);
 
-        let bind_group = match &mut cache.cached {
-            Some((texture_id, bind_group)) if post_process.source.id() == *texture_id => bind_group,
-            cached => {
-                let bind_group = ctx.render_device().create_bind_group(
-                    "distance_field_bind_group",
-                    &pipeline_cache
-                        .get_bind_group_layout(&distance_field_pipeline.bind_group_layout),
-                    &BindGroupEntries::sequential((
-                        post_process.source,
-                        &distance_field_pipeline.sampler,
-                        settings_binding.clone(),
-                        uniform.into_binding(),
-                    )),
-                );
+            let write = texture.write();
 
-                let (_, bind_group) = cached.insert((post_process.source.id(), bind_group));
-                bind_group
+            // let bind_group = match &mut cache.cached {
+            //     Some((texture_id, bind_group)) if write.source.id() == *texture_id => {
+            //         bind_group
+            //     }
+            //     cached => {
+            //         let bind_group = ctx.render_device().create_bind_group(
+            //             "distance_field_bind_group",
+            //             &pipeline_cache
+            //                 .get_bind_group_layout(&distance_field_pipeline.bind_group_layout),
+            //             &BindGroupEntries::sequential((
+            //                 write.source,
+            //                 &distance_field_pipeline.sampler,
+            //                 settings_binding.clone(),
+            //                 uniform.into_binding(),
+            //             )),
+            //         );
+
+            //         let (_, bind_group) = cached.insert((write.source.id(), bind_group));
+            //         bind_group
+            //     }
+            // };
+            let bind_group = &ctx.render_device().create_bind_group(
+                        "distance_field_bind_group",
+                        &pipeline_cache
+                            .get_bind_group_layout(&distance_field_pipeline.bind_group_layout),
+                        &BindGroupEntries::sequential((
+                            write.source,
+                            &distance_field_pipeline.sampler,
+                            settings_binding.clone(),
+                            uniform.into_binding(),
+                        )),
+                    );
+
+            let mut render_pass = ctx
+                .command_encoder()
+                .begin_render_pass(&RenderPassDescriptor {
+                    label: Some("distance_field_pass"),
+                    color_attachments: &[Some(RenderPassColorAttachment {
+                        view: write.destination,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: Operations::default(),
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+
+            render_pass.set_pipeline(pipeline);
+
+            render_pass.set_bind_group(0, bind_group, &[settings_index.index()]);
+            render_pass.draw(0..3, 0..1);
+
+            jump_dist /= 2;
+            if jump_dist < 1 {
+                jump_dist = 1
             }
-        };
-
-        let mut render_pass = ctx
-            .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
-                label: Some("distance_field_pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: post_process.destination,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations::default(),
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-
-        render_pass.set_pipeline(pipeline);
-
-        render_pass.set_bind_group(0, bind_group, &[settings_index.index()]);
-        render_pass.draw(0..3, 0..1);
-
-        jump_dist /= 2;
-        if jump_dist < 1 {
-            jump_dist = 1
         }
     }
 }

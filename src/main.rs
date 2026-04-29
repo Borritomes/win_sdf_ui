@@ -9,6 +9,7 @@ use bevy::{
 use crate::{
     distance_field::{DistanceFieldImage, DistanceFieldPlugin, DistanceFieldSettings},
     distance_to_value::{DistanceToValuePlugin, DistanceToValueSettings},
+    ping_pong::{PingPongMarker, PingPongPlugin},
     threshold::{ThresholdPlugin, ThresholdSettings},
     uv_to_color::{ColorToUVMarker, UVToColorPlugin},
 };
@@ -20,6 +21,7 @@ mod threshold;
 mod uv_to_color;
 
 pub const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
+pub const RESOLUTION: u32 = 1024;
 
 fn main() {
     let mut app = App::new();
@@ -27,7 +29,7 @@ fn main() {
     app.add_plugins((DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(Window {
-                resolution: WindowResolution::new(1024, 512),
+                resolution: WindowResolution::new(512, 512),
                 title: "win_sdf_ui".into(),
                 ..default()
             }),
@@ -36,7 +38,7 @@ fn main() {
         .set(ImagePlugin::default_nearest()),));
 
     app.add_systems(Startup, setup);
-    app.add_systems(FixedUpdate, ui_circle_move);
+    app.add_systems(FixedUpdate, (ui_circle_move, worldspace_circle_move));
     app.add_observer(fullscreen_sprite_on_add);
     app.add_observer(on_distance_field_settings_add);
     app.add_systems(
@@ -45,9 +47,10 @@ fn main() {
     );
 
     app.add_plugins((
+        PingPongPlugin,
+        ThresholdPlugin,
         UVToColorPlugin,
         DistanceFieldPlugin,
-        ThresholdPlugin,
         DistanceToValuePlugin,
     ));
 
@@ -59,16 +62,29 @@ fn on_distance_field_settings_add(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let image = Image::new_target_texture(512, 512, TEXTURE_FORMAT, Some(TEXTURE_FORMAT));
+    let image = Image::new_target_texture(RESOLUTION, RESOLUTION, TEXTURE_FORMAT, Some(TEXTURE_FORMAT));
     let handle = images.add(image);
 
+    // commands.spawn((
+    //     Name::new("Rgba32FloatImage"),
+    //     Transform {
+    //         translation: Vec3::new(-256.0, 0.0, 1.0),
+    //         ..default()
+    //     },
+    //     Sprite::from_image(handle.clone()),
+    //     FullscreenSprite::default(),
+    // ));
     commands.spawn((
-        Name::new("Rgba32FloatImage"),
-        Transform {
-            translation: Vec3::new(-256.0, 0.0, 1.0),
+        Node {
+            height: vh(100),
+            width: vw(100),
             ..default()
         },
-        Sprite::from_image(handle.clone()),
+        ImageNode {
+            image: handle.clone(),
+            image_mode: NodeImageMode::Stretch,
+            ..default()
+        }
     ));
 
     commands
@@ -85,18 +101,19 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Name::new("Camera"),
         Camera2d,
         Transform {
-            translation: Vec3::new(256.0, 0.0, 1.0),
+            translation: Vec3::new(0.0, 0.0, 1.0),
             ..default()
         },
         Camera {
-            clear_color: ClearColorConfig::Custom(css::WHITE.into()),
+            clear_color: ClearColorConfig::Custom(css::BLACK.into()),
             ..default()
         },
+        PingPongMarker,
         DistanceFieldSettings {
             radius: 16.0,
             threshold: 0.5,
         },
-        DistanceToValueSettings { threshold: 0.5 },
+        DistanceToValueSettings { threshold: 0.5, radius: 64.0 },
         ThresholdSettings { threshold: 0.5 },
         ColorToUVMarker,
     ));
@@ -112,15 +129,39 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Name::new("Image"),
         Transform {
-            translation: Vec3::new(256.0, 0.0, 0.5),
+            translation: Vec3::new(0.0, 0.0, 0.5),
             ..default()
         },
         Sprite {
-            image: asset_server.load("images/canvas.png"),
-            custom_size: Some(Vec2::new(512.0, 512.0)),
+            image: asset_server.load("images/rect_rounded_stroke.png"),
+            custom_size: Some(Vec2::new(RESOLUTION as f32 / 2.0, RESOLUTION as f32 / 2.0)),
             ..default()
         },
         FullscreenSprite::default(),
+        MoveInCircle {
+            rotation: 0.0,
+            speed: 4.0,
+            radius: 32.0
+        },
+    ));
+
+    commands.spawn((
+        Name::new("Image"),
+        Transform {
+            translation: Vec3::new(0.0, 0.0, 0.5),
+            ..default()
+        },
+        Sprite {
+            image: asset_server.load("images/rect_rounded_stroke.png"),
+            custom_size: Some(Vec2::new(RESOLUTION as f32 / 2.0, RESOLUTION as f32 / 2.0)),
+            ..default()
+        },
+        FullscreenSprite::default(),
+        MoveInCircle {
+            rotation: 180.0,
+            speed: 2.0,
+            radius: 32.0
+        },
     ));
 }
 
@@ -201,6 +242,14 @@ fn ui_circle_move(query: Query<(&mut MoveInCircle, &mut UiTransform)>) {
     for (mut move_in_circle, mut transform) in query {
         let vec = Vec2::from_angle(0.01745329 * move_in_circle.rotation) * move_in_circle.radius;
         transform.translation = Val2::new(px(vec.x), px(vec.y));
+        move_in_circle.rotation += move_in_circle.speed;
+    }
+}
+
+fn worldspace_circle_move(query: Query<(&mut MoveInCircle, &mut Transform)>) {
+    for (mut move_in_circle, mut transform) in query {
+        let vec = Vec2::from_angle(0.01745329 * move_in_circle.rotation) * move_in_circle.radius;
+        transform.translation = vec.extend(transform.translation.z);
         move_in_circle.rotation += move_in_circle.speed;
     }
 }

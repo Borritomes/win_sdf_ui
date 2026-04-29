@@ -8,19 +8,15 @@ use bevy::{
         RenderApp, RenderStartup,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         render_resource::{
-            BindGroup, BindGroupEntries, BindGroupLayoutEntries, ColorTargetState, ColorWrites,
-            Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, Sampler,
-            SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, TextureSampleType,
-            TextureViewId,
-            binding_types::{sampler, texture_2d, uniform_buffer},
+            BindGroup, BindGroupEntries, BindGroupLayoutEntries, ColorTargetState, ColorWrites, IntoBinding, Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, TextureSampleType, TextureViewId, UniformBuffer, binding_types::{sampler, texture_2d, uniform_buffer}
         },
-        renderer::{RenderContext, RenderDevice, ViewQuery},
+        renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         uniform::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
         view::ViewTarget,
     },
 };
 
-use crate::{TEXTURE_FORMAT, distance_field};
+use crate::{TEXTURE_FORMAT, distance_field, ping_pong::SdfTextures, uv_to_color};
 
 const THRESHOLD_SHADER: &str = "shaders/threshold.wgsl";
 
@@ -41,7 +37,7 @@ impl Plugin for ThresholdPlugin {
         render_app.add_systems(
             Core2d,
             threshold_system
-                .before(distance_field::distance_field_system)
+                .before(uv_to_color::uv_to_color_system)
                 .in_set(Core2dSystems::PostProcess),
         );
     }
@@ -68,6 +64,7 @@ pub struct ThresholdPipeline {
 pub fn threshold_system(
     view: ViewQuery<(
         &ViewTarget,
+        &mut SdfTextures,
         &ThresholdSettings,
         &DynamicUniformIndex<ThresholdSettings>,
     )>,
@@ -76,12 +73,14 @@ pub fn threshold_system(
     settings_uniforms: Res<ComponentUniforms<ThresholdSettings>>,
     mut cache: Local<ThresholdBindGroupCache>,
     mut ctx: RenderContext,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>
 ) {
     let Some(threshold_pipeline) = threshold_pipeline else {
         return;
     };
 
-    let (view_target, _threshold_settings, settings_index) = view.into_inner();
+    let (view_target, mut textures, _threshold_settings, settings_index) = view.into_inner();
 
     let Some(pipeline) = pipeline_cache.get_render_pipeline(threshold_pipeline.pipeline_id) else {
         return;
@@ -93,44 +92,65 @@ pub fn threshold_system(
 
     let post_process = view_target.post_process_write();
 
-    let bind_group = match &mut cache.cached {
-        Some((texture_id, bind_group)) if post_process.source.id() == *texture_id => bind_group,
-        cached => {
-            let bind_group = ctx.render_device().create_bind_group(
-                "threshold_bind_group",
-                &pipeline_cache.get_bind_group_layout(&threshold_pipeline.layout),
-                &BindGroupEntries::sequential((
-                    post_process.source,
-                    &threshold_pipeline.sampler,
-                    settings_binding.clone(),
-                )),
-            );
+    let mut count = 0;
+    for texture in [&textures.regular, &textures.invert] {
+        let ping_pong = texture.initial_write();
+        
+        let mut uniform = UniformBuffer::from(count);
+        uniform.set(count);
+        uniform.write_buffer(&render_device, &render_queue);
 
-            let (_, bind_group) = cached.insert((post_process.source.id(), bind_group));
-            bind_group
-        }
-    };
+        // let bind_group = match &mut cache.cached {
+        //     Some((texture_id, bind_group)) if post_process.source.id() == *texture_id => bind_group,
+        //     cached => {
+        //         let bind_group = ctx.render_device().create_bind_group(
+        //             "threshold_bind_group",
+        //             &pipeline_cache.get_bind_group_layout(&threshold_pipeline.layout),
+        //             &BindGroupEntries::sequential((
+        //                 post_process.source,
+        //                 &threshold_pipeline.sampler,
+        //                 settings_binding.clone(),
+        //             )),
+        //         );
 
-    let mut render_pass = ctx
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("threshold_pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post_process.destination,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        //         let (_, bind_group) = cached.insert((post_process.source.id(), bind_group));
+        //         bind_group
+        //     }
+        // };
+        let bind_group = &ctx.render_device().create_bind_group(
+                    "threshold_bind_group",
+                    &pipeline_cache.get_bind_group_layout(&threshold_pipeline.layout),
+                    &BindGroupEntries::sequential((
+                        post_process.source,
+                        &threshold_pipeline.sampler,
+                        settings_binding.clone(),
+                        uniform.into_binding()
+                    )),
+                );
 
-    render_pass.set_pipeline(pipeline);
+        let mut render_pass = ctx
+            .command_encoder()
+            .begin_render_pass(&RenderPassDescriptor {
+                label: Some("threshold_pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: ping_pong.source,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations::default(),
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
 
-    render_pass.set_bind_group(0, bind_group, &[settings_index.index()]);
-    render_pass.draw(0..3, 0..1);
+        render_pass.set_pipeline(pipeline);
+
+        render_pass.set_bind_group(0, bind_group, &[settings_index.index()]);
+        render_pass.draw(0..3, 0..1);
+
+        count += 1;
+    }
 }
 
 fn init_threshold_pipeline(
@@ -149,6 +169,7 @@ fn init_threshold_pipeline(
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 sampler(SamplerBindingType::NonFiltering),
                 uniform_buffer::<ThresholdSettings>(true),
+                uniform_buffer::<u32>(false)
             ),
         ),
     );

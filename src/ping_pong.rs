@@ -2,13 +2,9 @@ use bevy::{
     image::ToExtents,
     prelude::*,
     render::{
-        Render, RenderApp,
-        camera::ExtractedCamera,
-        render_resource::{
+        Render, RenderApp, camera::ExtractedCamera, extract_component::{ExtractComponent, ExtractComponentPlugin}, render_resource::{
             Texture, TextureDescriptor, TextureDimension, TextureUsages, TextureView,
-        },
-        renderer::RenderDevice,
-        texture::{CachedTexture, TextureCache},
+        }, renderer::RenderDevice, texture::{CachedTexture, TextureCache}
     },
 };
 
@@ -18,6 +14,8 @@ pub struct PingPongPlugin;
 
 impl Plugin for PingPongPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ExtractComponentPlugin::<PingPongMarker>::default());
+
         let render_app = app
             .get_sub_app_mut(RenderApp)
             .expect("failed to get RenderApp");
@@ -26,9 +24,9 @@ impl Plugin for PingPongPlugin {
     }
 }
 
-#[derive(Component, Reflect, Debug)]
+#[derive(Component, Default, Reflect, Clone, Copy, ExtractComponent)]
 #[reflect(Component)]
-struct PingPongMarker;
+pub struct PingPongMarker;
 
 #[derive(Clone, Eq, PartialEq)]
 pub enum PingPongTextureType {
@@ -38,10 +36,10 @@ pub enum PingPongTextureType {
 
 #[derive(Clone)]
 pub struct PingPongWrite<'a> {
-    source: &'a TextureView,
-    source_texture: &'a Texture,
-    destination: &'a TextureView,
-    destination_texture: &'a Texture,
+    pub source: &'a TextureView,
+    pub source_texture: &'a Texture,
+    pub destination: &'a TextureView,
+    pub destination_texture: &'a Texture,
 }
 
 #[derive(Clone)]
@@ -52,8 +50,16 @@ pub struct PingPongTextures {
 }
 
 impl PingPongTextures {
+    pub fn read_current(&self) -> &TextureView {
+        if self.read == PingPongTextureType::A {
+            return &self.texture_a.default_view
+        } else {
+            return &self.texture_b.default_view
+        }
+    }
+
     // the initial write is camera output -> texture, so we don't want to swap
-    pub fn initial_write(&mut self) -> PingPongWrite<'_> {
+    pub fn initial_write(&self) -> PingPongWrite<'_> {
         return PingPongWrite {
             source: &self.texture_a.default_view,
             source_texture: &self.texture_a.texture,
@@ -84,9 +90,19 @@ impl PingPongTextures {
 }
 
 #[derive(Component, Clone)]
-struct SdfTextures {
-    regular: PingPongTextures,
-    invert: PingPongTextures,
+pub struct SdfTextures {
+    pub regular: PingPongTextures,
+    pub invert: PingPongTextures,
+}
+
+impl SdfTextures {
+    pub fn mut_borrow_both(&mut self) -> (&mut PingPongTextures, &mut PingPongTextures) {
+        return (&mut self.regular, &mut self.invert)
+    }
+
+    pub fn write_both(&mut self) -> (PingPongWrite, PingPongWrite) {
+        (self.regular.write(), self.invert.write())
+    }
 }
 
 fn prepare_textures(

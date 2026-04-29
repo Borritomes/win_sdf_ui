@@ -18,7 +18,7 @@ use bevy::{
     },
 };
 
-use crate::{TEXTURE_FORMAT, threshold::threshold_system};
+use crate::{TEXTURE_FORMAT, distance_field, ping_pong::SdfTextures};
 
 const COLOR_TO_UV_SHADER: &str = "shaders/color_to_uv.wgsl";
 
@@ -36,7 +36,7 @@ impl Plugin for UVToColorPlugin {
         render_app.add_systems(
             Core2d,
             uv_to_color_system
-                .after(threshold_system)
+                .before(distance_field::distance_field_system)
                 .in_set(Core2dSystems::PostProcess),
         );
     }
@@ -59,7 +59,7 @@ pub struct ColorToUVPipeline {
 }
 
 pub fn uv_to_color_system(
-    view: ViewQuery<&ViewTarget, With<ColorToUVMarker>>,
+    view: ViewQuery<(&ViewTarget, &mut SdfTextures), With<ColorToUVMarker>>,
     color_to_uv_pipeline: Option<Res<ColorToUVPipeline>>,
     pipeline_cache: Res<PipelineCache>,
     mut cache: Local<ColorToUVBindGroupCache>,
@@ -69,49 +69,56 @@ pub fn uv_to_color_system(
         return;
     };
 
-    let view_target = view.into_inner();
+    let (view_target, mut sdf_textures) = view.into_inner();
 
     let Some(pipeline) = pipeline_cache.get_render_pipeline(color_to_uv_pipeline.pipeline_id)
     else {
         return;
     };
 
-    let post_process = view_target.post_process_write();
+    let (regular_write, invert_write) = sdf_textures.write_both();
 
-    let bind_group = match &mut cache.cached {
-        Some((texture_id, bind_group)) if post_process.source.id() == *texture_id => bind_group,
-        cached => {
-            let bind_group = ctx.render_device().create_bind_group(
-                "color_to_uv_bind_group",
-                &pipeline_cache.get_bind_group_layout(&color_to_uv_pipeline.layout),
-                &BindGroupEntries::sequential((post_process.source, &color_to_uv_pipeline.sampler)),
-            );
+    for texture in [regular_write, invert_write] {
+        // let bind_group = match &mut cache.cached {
+        //     Some((texture_id, bind_group)) if texture.source.id() == *texture_id => bind_group,
+        //     cached => {
+        //         let bind_group = ctx.render_device().create_bind_group(
+        //             "color_to_uv_bind_group",
+        //             &pipeline_cache.get_bind_group_layout(&color_to_uv_pipeline.layout),
+        //             &BindGroupEntries::sequential((texture.source, &color_to_uv_pipeline.sampler)),
+        //         );
 
-            let (_, bind_group) = cached.insert((post_process.source.id(), bind_group));
-            bind_group
-        }
-    };
+        //         let (_, bind_group) = cached.insert((texture.source.id(), bind_group));
+        //         bind_group
+        //     }
+        // };
+        let bind_group = &ctx.render_device().create_bind_group(
+                    "color_to_uv_bind_group",
+                    &pipeline_cache.get_bind_group_layout(&color_to_uv_pipeline.layout),
+                    &BindGroupEntries::sequential((texture.source, &color_to_uv_pipeline.sampler)),
+                );
 
-    let mut render_pass = ctx
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("color_to_uv_pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post_process.destination,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        let mut render_pass = ctx
+            .command_encoder()
+            .begin_render_pass(&RenderPassDescriptor {
+                label: Some("color_to_uv_pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: texture.destination,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations::default(),
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
 
-    render_pass.set_pipeline(pipeline);
+        render_pass.set_pipeline(pipeline);
 
-    render_pass.set_bind_group(0, bind_group, &[]);
-    render_pass.draw(0..3, 0..1);
+        render_pass.set_bind_group(0, bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
+    }
 }
 
 fn init_color_to_uv_pipeline(

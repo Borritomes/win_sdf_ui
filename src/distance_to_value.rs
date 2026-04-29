@@ -20,7 +20,7 @@ use bevy::{
     },
 };
 
-use crate::{distance_field, render_to_window};
+use crate::{distance_field, ping_pong::SdfTextures};
 
 const DISTANCE_TO_VALUE_SHADER: &str = "shaders/distance_to_value.wgsl";
 
@@ -42,7 +42,6 @@ impl Plugin for DistanceToValuePlugin {
             Core2d,
             distance_to_value_system
                 .after(distance_field::distance_field_system)
-                .before(render_to_window::render_to_window_system)
                 .in_set(Core2dSystems::PostProcess),
         );
     }
@@ -57,6 +56,7 @@ pub struct DistanceToValueBindGroupCache {
 #[reflect(Component)]
 pub struct DistanceToValueSettings {
     pub threshold: f32,
+    pub radius: f32,
 }
 
 #[derive(Resource)]
@@ -69,6 +69,7 @@ pub struct DistanceToValuePipeline {
 pub fn distance_to_value_system(
     view: ViewQuery<(
         &ViewTarget,
+        &SdfTextures,
         &DistanceToValueSettings,
         &DynamicUniformIndex<DistanceToValueSettings>,
     )>,
@@ -82,7 +83,7 @@ pub fn distance_to_value_system(
         return;
     };
 
-    let (view_target, _distance_to_value_settings, settings_index) = view.into_inner();
+    let (view_target, sdf_textures, _distance_to_value_settings, settings_index) = view.into_inner();
 
     let Some(pipeline) = pipeline_cache.get_render_pipeline(distance_to_value_pipeline.pipeline_id)
     else {
@@ -93,6 +94,9 @@ pub fn distance_to_value_system(
         return;
     };
 
+    let regular_view = sdf_textures.regular.read_current();
+    let invert_view = sdf_textures.invert.read_current();
+
     let post_process = view_target.post_process_write();
 
     let bind_group = match &mut cache.cached {
@@ -102,7 +106,8 @@ pub fn distance_to_value_system(
                 "distance_to_value_bind_group",
                 &pipeline_cache.get_bind_group_layout(&distance_to_value_pipeline.layout),
                 &BindGroupEntries::sequential((
-                    post_process.source,
+                    regular_view,
+                    invert_view,
                     &distance_to_value_pipeline.sampler,
                     settings_binding.clone(),
                 )),
@@ -148,6 +153,7 @@ fn init_distance_to_value_pipeline(
             ShaderStages::FRAGMENT,
             (
                 // screen texture
+                texture_2d(TextureSampleType::Float { filterable: true }),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 sampler(SamplerBindingType::NonFiltering),
                 uniform_buffer::<DistanceToValueSettings>(true),
