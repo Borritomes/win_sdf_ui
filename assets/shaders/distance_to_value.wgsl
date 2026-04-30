@@ -18,7 +18,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let dims = textureDimensions(texture_regular);
     let texel_size: vec2<f32> = vec2<f32>(1.0, 1.0) / vec2<f32>(dims);
     let size_of_radius_pixels = vec2<f32>(radius, radius) * texel_size;
-    let uv: vec2<i32> = vec2<i32>(round(in.uv * vec2<f32>(dims)));
+    let uv: vec2<i32> = vec2<i32>(in.uv * vec2<f32>(dims));
 
     var dist_regular: f32 = distance(in.uv, vec2(color_regular.r, color_regular.g));
     var dist_invert: f32 = distance(in.uv, vec2(color_invert.r, color_invert.g));
@@ -39,6 +39,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     }
 
     // return vec4(dist_regular, dist_invert, color_regular.b, 1.0);
+    let dark = vec4(0.025, 0.05, 0.1, 1.0);
     if false {
         //distance field gradient
         if color_regular.b > 0.5 {
@@ -64,7 +65,29 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         if dist > 0.5 {
             return vec4(1.0);
         } else {
-            return vec4(0.0, 0.0, 0.0, 1.0);
+            if dist > 0.49 {
+                return vec4(0.0, 0.0, 0.0, 1.0);
+            }
+            if dist > 0.485 {
+                if (uv.x % 2 == 1) || (uv.y % 2 == 1) {
+                    return vec4(0.0, 0.0, 0.0, 1.0);
+                } else {
+                    return dark;
+                }
+            }
+            if dist > 0.48 {
+                if (uv.x % 2 == 0) != (uv.y % 2 == 0) {
+                    return vec4(0.0, 0.0, 0.0, 1.0);
+                } else {
+                    return dark;
+                }
+            }
+            if dist > 0.475 {
+                if (uv.x % 2 == 0) && (uv.y % 2 == 0) {
+                    return vec4(0.0, 0.0, 0.0, 1.0);
+                }
+            }
+            return dark;
         }
     }
 }

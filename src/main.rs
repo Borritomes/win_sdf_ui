@@ -21,7 +21,7 @@ mod threshold;
 mod uv_to_color;
 
 pub const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
-pub const RESOLUTION: u32 = 1024;
+pub const RESOLUTION: u32 = 512;
 
 fn main() {
     let mut app = App::new();
@@ -140,7 +140,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         FullscreenSprite::default(),
         MoveInCircle {
             rotation: 0.0,
-            speed: 4.0,
+            speed: 0.0,
             radius: 32.0
         },
     ));
