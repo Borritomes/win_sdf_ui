@@ -1,24 +1,17 @@
 use bevy::{
-    camera::{ImageRenderTarget, RenderTarget},
-    color::palettes::css,
-    prelude::*,
-    render::render_resource::TextureFormat,
-    window::WindowResolution,
+    camera::{ImageRenderTarget, RenderTarget}, color::palettes::css::{self, WHITE}, ecs::entity_disabling::Disabled, prelude::*, render::render_resource::TextureFormat, window::WindowResolution
 };
 
 use crate::{
-    distance_field::{DistanceFieldImage, DistanceFieldPlugin, DistanceFieldSettings},
-    distance_to_value::{DistanceToValuePlugin, DistanceToValueSettings},
-    ping_pong::{PingPongMarker, PingPongPlugin},
-    threshold::{ThresholdPlugin, ThresholdSettings},
-    uv_to_color::{ColorToUVMarker, UVToColorPlugin},
+    distance_field::{DistanceFieldImage, DistanceFieldPlugin, DistanceFieldSettings}, distance_to_value::{DistanceToValuePlugin, DistanceToValueSettings}, ping_pong::{PingPongMarker, PingPongPlugin}, smooth_step::{SmoothStepPlugin, SmoothStepSettings}, threshold::{ThresholdPlugin, ThresholdSettings}, uv_to_color::{ColorToUVMarker, UVToColorPlugin}
 };
 
-mod distance_field;
-mod distance_to_value;
 mod ping_pong;
 mod threshold;
 mod uv_to_color;
+mod distance_field;
+mod distance_to_value;
+mod smooth_step;
 
 pub const TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
 pub const RESOLUTION: u32 = 512;
@@ -52,6 +45,7 @@ fn main() {
         UVToColorPlugin,
         DistanceFieldPlugin,
         DistanceToValuePlugin,
+        SmoothStepPlugin
     ));
 
     app.run();
@@ -108,14 +102,18 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             clear_color: ClearColorConfig::Custom(css::BLACK.into()),
             ..default()
         },
-        PingPongMarker,
+        ThresholdSettings { threshold: 0.5 },
+        ColorToUVMarker,
         DistanceFieldSettings {
             radius: 16.0,
             threshold: 0.5,
         },
         DistanceToValueSettings { threshold: 0.5, radius: 64.0 },
-        ThresholdSettings { threshold: 0.5 },
-        ColorToUVMarker,
+        PingPongMarker,
+        SmoothStepSettings {
+            falloff_start: 0.4,
+            falloff_stop: 0.6,
+        }
     ));
     commands.spawn((
         Name::new("MainCamera"),
@@ -127,6 +125,24 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 
     commands.spawn((
+        Name::new("Square"),
+        Transform {
+            translation: Vec3::new(128.0, 0.0, 0.0),
+            ..default()
+        },
+        Sprite::from_color(WHITE, Vec2::splat(256.0)),
+    ));
+    commands.spawn((
+        Name::new("Square"),
+        Transform {
+            translation: Vec3::new(0.0, -128.0, 0.0),
+            ..default()
+        },
+        Sprite::from_color(WHITE, Vec2::splat(256.0)),
+    ));
+
+    commands.spawn((
+        Disabled,
         Name::new("Image"),
         Transform {
             translation: Vec3::new(0.0, 0.0, 0.5),
@@ -146,6 +162,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 
     commands.spawn((
+        Disabled,
         Name::new("Image"),
         Transform {
             translation: Vec3::new(0.0, 0.0, 0.5),
@@ -159,7 +176,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         FullscreenSprite::default(),
         MoveInCircle {
             rotation: 180.0,
-            speed: 2.0,
+            speed: 0.5,
             radius: 32.0
         },
     ));

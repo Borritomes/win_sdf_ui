@@ -20,7 +20,7 @@ use bevy::{
     },
 };
 
-use crate::{distance_field, ping_pong::SdfTextures};
+use crate::{TEXTURE_FORMAT, distance_field, ping_pong::SdfTextures};
 
 const DISTANCE_TO_VALUE_SHADER: &str = "shaders/distance_to_value.wgsl";
 
@@ -148,7 +148,7 @@ fn init_distance_to_value_pipeline(
     pipeline_cache: Res<PipelineCache>,
 ) {
     let layout = BindGroupLayoutDescriptor::new(
-        "post_process_bind_group_layout",
+        "distance_to_value_bind_group_layout",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
             (
@@ -173,7 +173,7 @@ fn init_distance_to_value_pipeline(
         fragment: Some(FragmentState {
             shader,
             targets: vec![Some(ColorTargetState {
-                format: TextureFormat::Rgba32Float,
+                format: TEXTURE_FORMAT,
                 blend: None,
                 write_mask: ColorWrites::ALL,
             })],
