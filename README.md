@@ -1,4 +1,9 @@
-# My Bevy App
+# post processing effect to draw a dithered shadow from a distance field generated with the jump flood algorithm<br>
 
-This project was generated using the [Bevy New 2D](https://github.com/TheBevyFlock/bevy_new_2d) template.
-Check out the [documentation](https://github.com/TheBevyFlock/bevy_new_2d/blob/main/README.md) to get started!
+Shadow:
+
+https://github.com/user-attachments/assets/62856db3-6251-4a02-a22c-d24fdcad40b5
+
+Distance Field:
+
+https://github.com/user-attachments/assets/a11170d8-5557-42cd-98a6-87676452e329
